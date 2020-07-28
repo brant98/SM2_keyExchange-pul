@@ -31,7 +31,7 @@ big para_p, para_a, para_b, para_n, para_Gx, para_Gy, para_h;
 epoint* G;
 miracl* mip;
 /*
-功能：SM2签名算法椭圆曲线参数初始化
+功能：SM2算法椭圆曲线参数初始化
 输入：无
 输出：无
 返回：0失败  1成功
@@ -58,7 +58,7 @@ int SM2_init(void)
 	bytes_to_big(32, SM2_n, para_n);
 	bytes_to_big(32, SM2_Gx, para_Gx);
 	bytes_to_big(32, SM2_Gy, para_Gy);
-	//bytes_to_big(256, SM2_h, para_h);
+	bytes_to_big(256, SM2_h, para_h);
 
 	/*Initialises GF(p) elliptic curve.(MR_PROJECTIVE specifying projective coordinates)*/
 	ecurve_init(para_a, para_b, para_p, MR_PROJECTIVE);
@@ -175,4 +175,229 @@ int KDF(unsigned char Z[], int zlen, unsigned char K[], int klen)
 		memcpy((K + 32 * (t - 1)), Ha, 32);
 	}
 	return 1;//返回1成功
+}
+
+void SM2_ZA(epoint*A, unsigned char IDA[ ],unsigned char ZA[])//生成用户标识
+{
+	unsigned char pubx[32],puby[32];
+	big X, Y;
+	X = mirvar(0);
+	Y = mirvar(0);
+	epoint_get(A, X, Y);
+	big_to_bytes(32, X, pubx, 1);
+	big_to_bytes(32, Y, puby, 1);
+
+	unsigned char ENTLA[2] = { 0x00, 0x80 }; //签名者的具有长度为entlenA比特的可辨别标识IDA，记ENTLA是由整数entlenA转换而成的两个字节
+	//unsigned char IDA[16] = { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38 };//用户标识
+	unsigned char Msg[210];	//210 = size of IDA + 2 + 32 * 6(a,b,Gx,Gy,pubx,puby)  =210字节
+
+	//ZA = Hash(ENTLA || IDA || a || b || Gx || Gy || xpub|| ypub)
+	memcpy(Msg, ENTLA, 2);
+	memcpy(Msg + 2, IDA, sizeof(IDA));
+	memcpy(Msg + 2 + sizeof(IDA), SM2_a, 32);
+	memcpy(Msg + 2 + sizeof(IDA) + 32, SM2_b, 32);
+	memcpy(Msg + 2 + sizeof(IDA) + 32 * 2, SM2_Gx, 32);
+	memcpy(Msg + 2 + sizeof(IDA) + 32 * 3, SM2_Gy, 32);
+	memcpy(Msg + 2 + sizeof(IDA) + 32 * 4, pubx, 32);
+	memcpy(Msg + 2 + sizeof(IDA) + 32 * 5, puby, 32);
+	//此处使用的是hash256,当然最标准的应该是使用SM3进行杂凑
+	sha256 sha_256;
+	shs256_init(&sha_256);
+	for (int i = 0; i < 210; i++)
+	{
+		shs256_process(&sha_256, Msg[i]);
+	}
+	shs256_hash(&sha_256, ZA);
+	//printf("ZA done!\n");
+}
+
+/*************
+------密钥交换---
+*************/
+//以下为SM2密钥交换部分的函数
+
+//用户A为发起方，B为请求响应方
+
+//RA，即步骤A1-A3
+int cal_RA_RB(epoint** RA,big *rA)//RA为一个点，rA为随机数
+{
+	//A1: 产生随机数ra在1至n-1范围内
+	while (isInRange(*rA) == 0)
+	{
+		bigrand(para_n, *rA);
+	}
+
+	//A2:计算RA=[rA]G；
+	ecurve2_mult(*rA, G, *RA);
+	
+	//A3:将RA发送给B
+	return 1;//返回1表示成功
+}
+
+//测试点是否在这条椭圆曲线上
+int pointIsOn(epoint* point)
+{
+	big x, y, x_3, tmp;
+
+	x = mirvar(0);
+	y = mirvar(0);
+	x_3 = mirvar(0);
+	tmp = mirvar(0);
+
+	//测试 y^2 = x^3 + ax + b 是否成立
+	epoint_get(point, x, y);
+	power(x, 3, para_p, x_3);	//x_3 = x^3 mod p
+	multiply(x, para_a, x); 	//x = a * x
+	divide(x, para_p, tmp); 	//x = a * x mod p, tmp = a * x / p
+	add(x_3, x, x);				//x = x^3 + ax
+	add(x, para_b, x);			//x = x^3 + ax + b
+	divide(x, para_p, tmp);		//x = x^3 + ax + b mod p
+	power(y, 2, para_p, y);		//y = y^2 mod p
+
+	if (mr_compare(x, y) != 0) 
+		return 0;//返回0表示不在这条椭圆曲线上
+
+	return 1;//返回1表示在
+}
+
+//响应方B,首先进行的系列操作
+int B1(epoint * RA,epoint** RB,epoint *pA,epoint *pB,big dB,big * rB, unsigned char IDA[ ], unsigned char IDB[], unsigned char K[],unsigned char hash[])
+{
+	big x1,y1,x2, y2,x1_,y1_,x2_,y2_,Vx,Vy,temp;
+	epoint* V;
+	int lenK = sizeof(K);
+	int i = 0;
+	V = epoint_init();
+	x1 = mirvar(0);
+	y1 = mirvar(0);
+	x2 = mirvar(0);
+	y2 = mirvar(0);
+	x1_ = mirvar(0);
+	y1_ = mirvar(0);
+	Vx = mirvar(0);
+	Vy = mirvar(0);
+	temp = mirvar(0);
+
+	x2_ = mirvar(0);
+	y2_ = mirvar(0);
+	unsigned char x2y2_char[64] = { 0 };
+	unsigned char x1y1_char[64] = { 0 };
+	unsigned char Z[128] = {0};//128=VX, VY, ZA, ZB=32*4
+	unsigned char ZA[32];
+	unsigned char ZB[32];
+	unsigned char fr = 0x02;
+	sha256 sha_256;
+	int w = 0;
+	SM2_ZA(pA, IDA, ZA);//计算用户A、B的标识
+	SM2_ZA(pB, IDB, ZB);
+	
+	//B2: 计算RB
+	cal_RA_RB(*RB,*rB);
+	epoint_get(*RB, x2, y2);
+	//将x2 y2放数组中，方便后续进行杂凑，同时x2 y2就可以用作变量存放其他值。
+	big_to_bytes(32, x2, x2y2_char,1);
+	big_to_bytes(32, y2, x2y2_char+32,1);
+	
+	//B3:计算w,x2_=2^w + x2 & (2^w - 1)
+	w = logb2(para_n);
+	expb2(w, temp);//temp=2^w
+	if (mr_compare(para_n, temp) == 1)
+		w++;
+	if ((w % 2) == 0)
+		w = w / 2 - 1;
+	else
+		w = (w + 1) / 2 - 1;
+	//大数不方便直接进行与操作，采用模运算的方式实现与操作
+	expb2(w, x2_);   //x2_=2^w
+	divide(x2, x2_, temp);//x2里面放的是余数，即就是模2^w后的值
+	// 此处考虑用mod的方式实现一下
+	add(x2, x2_, x2_);   //x2_=2^w + x2 & (2^w - 1)
+
+	//B4：tB = (dB + x2_ * rB) mod n
+	multiply(x2_, rB, x2_); 
+	add(dB, x2_, x2_);     //现在的x2_=(dB + x2_ * rB)
+	divide(x2_, para_n, temp);   //x2_即就是tB
+	//divide(x2_, para_n, temp);	//x2_ = n mod q
+	
+	//B5:验证RA是否满足椭圆曲线，并计算x1_,单独将测试点是否在椭圆曲线上写成一个函数，使代码更加简洁
+	//先测试
+	if (pointIsOn(RA) == 0)
+	{
+		printf("RA is not on the curve!\n");
+		return 0;
+	}
+	//后计算x1_
+	epoint_get(RA, x1, y1);
+	big_to_bytes(32, x1, x1y1_char, 1);
+	big_to_bytes(32, y1, x1y1_char+32,1);
+	expb2(w, x1_);		//x1_ = 2^w
+	divide(x1, x1_, temp);	//x1 = x1 mod x1_ = x1 & (2^w - 1)
+	add(x1_, x1, x1_);
+	//divide(x1_, para_n, temp);	//x1_ = n mod q
+
+
+	//B6:计算点V，V是否为无穷远点？V = [h * tB](PA + [x1_]RA)
+	ecurve_mult(x1_, RA, V);//V=[x1_]RA
+	epoint_get(V, Vx, Vy);
+
+	ecurve_add(pA, V);//V=PA+[x1_]RA
+	epoint_get(V, Vx, Vy);
+
+	multiply(para_h, x2_, temp);//temp=tB * h
+	ecurve_mult(temp, V, V);
+
+	if (point_at_infinity(V) == 1)
+	{
+		printf("V is at infinity!\n");
+		return 0;
+	}
+	epoint_get(V, Vx, Vy);
+
+	big_to_bytes(32, Vx, Z, 1);
+	big_to_bytes(32, Vy, Z + 32, 1);//Z=Vx||Vy
+	memcpy(Z + 64, ZA, 32);//Z=Vx||Vy||ZA
+	memcpy(Z + 96, ZB, 32);//Z=Vx||Vy||ZA||ZB
+	KDF(Z, 128, K, lenK);
+
+	//进行杂凑
+	shs256_init(&sha_256);
+	for (i = 0; i<32; i++)
+	{
+		shs256_process(&sha_256, Z[i]);  //hash(Vx)
+	}
+	shs256_hash(&sha_256, hash);
+
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, ZA[i]);  //hash(Vx||ZA)
+	}
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, ZB[i]);  //hash(Vx||ZA||ZB)
+	}
+	for (i = 0; i < 64; i++)
+	{
+		shs256_process(&sha_256, x1y1_char[i]);  //hash(Vx||ZA||ZB||x1||x2)
+	}
+	for (i = 0; i < 64; i++)
+	{
+		shs256_process(&sha_256, x2y2_char);  //hash(Vx||ZA||ZB||x1||y1||x2||y2)
+	}
+	shs256_hash(&sha_256, hash);
+
+	shs256_init(&sha_256);
+	shs256_process(&sha_256, fr);  //hash(0x02)
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, Z[i+32]);//hash(0x02||Vy)
+	}
+	
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, hash[i]);//hash(0x02||Vy||hash(Vx||ZA||ZB||x1||y1||x2||y2))
+	}
+	shs256_hash(&sha_256, hash);
+
+	return 1;//成功返回1,否则为失败
+
 }
