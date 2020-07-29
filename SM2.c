@@ -84,7 +84,7 @@ int isInRange(big num) //判断d是否在规定范围内  1至n-1的闭区间
 	convert(1, one);
 	decr(para_n, 1, decr_n);
 
-	if ((mr_compare(num, one) > 0) && (mr_compare(num, decr_n) < 0))//compare(x,y)  x>y +1   x=y 0  x<y -1
+	if ((mr_compare(num, one) > 0) && (mr_compare(num, decr_n) < 0)) //compare(x,y)  x>y +1   x=y 0  x<y -1
 		return 1;//返回1表示在适合范围
 	return 0;//返回0表示不在适合的范围
 }
@@ -177,9 +177,9 @@ int KDF(unsigned char Z[], int zlen, unsigned char K[], int klen)
 	return 1;//返回1成功
 }
 
-void SM2_ZA(epoint*A, unsigned char IDA[ ],unsigned char ZA[])//生成用户标识
+void SM2_ZA(epoint* A, unsigned char IDA[], unsigned char ZA[])//生成用户标识
 {
-	unsigned char pubx[32],puby[32];
+	unsigned char pubx[32], puby[32];
 	big X, Y;
 	X = mirvar(0);
 	Y = mirvar(0);
@@ -219,17 +219,19 @@ void SM2_ZA(epoint*A, unsigned char IDA[ ],unsigned char ZA[])//生成用户标识
 //用户A为发起方，B为请求响应方
 
 //RA，即步骤A1-A3
-int cal_RA_RB(epoint** RA,big *rA)//RA为一个点，rA为随机数
+int cal_RA_RB(epoint** RA, big* rA)//RA为一个点，rA为随机数
 {
 	//A1: 产生随机数ra在1至n-1范围内
+	*rA = mirvar(0);
+	*RA = epoint_init();
 	while (isInRange(*rA) == 0)
 	{
 		bigrand(para_n, *rA);
 	}
 
 	//A2:计算RA=[rA]G；
-	ecurve2_mult(*rA, G, *RA);
-	
+	ecurve_mult(*rA, G, *RA);
+
 	//A3:将RA发送给B
 	return 1;//返回1表示成功
 }
@@ -254,19 +256,21 @@ int pointIsOn(epoint* point)
 	divide(x, para_p, tmp);		//x = x^3 + ax + b mod p
 	power(y, 2, para_p, y);		//y = y^2 mod p
 
-	if (mr_compare(x, y) != 0) 
+	if (mr_compare(x, y) != 0)
 		return 0;//返回0表示不在这条椭圆曲线上
 
 	return 1;//返回1表示在
 }
 
 //响应方B,首先进行的系列操作
-int B1(epoint * RA,epoint** RB,epoint *pA,epoint *pB,big dB,big * rB, unsigned char IDA[ ], unsigned char IDB[], unsigned char K[],unsigned char hash[])
+//K里面放的KB hash里面放的Sb(选项)
+int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned char IDA[], unsigned char IDB[], unsigned char K[], unsigned char hash[])
 {
-	big x1,y1,x2, y2,x1_,y1_,x2_,y2_,Vx,Vy,temp;
+	big x1, y1, x2, y2, x1_, y1_, x2_, y2_, Vx, Vy, temp;
 	epoint* V;
 	int lenK = sizeof(K);
 	int i = 0;
+	int w = 0;
 	V = epoint_init();
 	x1 = mirvar(0);
 	y1 = mirvar(0);
@@ -280,24 +284,23 @@ int B1(epoint * RA,epoint** RB,epoint *pA,epoint *pB,big dB,big * rB, unsigned c
 
 	x2_ = mirvar(0);
 	y2_ = mirvar(0);
-	unsigned char x2y2_char[64] = { 0 };
 	unsigned char x1y1_char[64] = { 0 };
-	unsigned char Z[128] = {0};//128=VX, VY, ZA, ZB=32*4
+	unsigned char x2y2_char[64] = { 0 };
+	unsigned char Z[128] = { 0 };//128=VX, VY, ZA, ZB=32*4
 	unsigned char ZA[32];
 	unsigned char ZB[32];
-	unsigned char fr = 0x02;
+	unsigned char fr[1] = { 0x02 };
 	sha256 sha_256;
-	int w = 0;
+
 	SM2_ZA(pA, IDA, ZA);//计算用户A、B的标识
 	SM2_ZA(pB, IDB, ZB);
-	
+
 	//B2: 计算RB
-	cal_RA_RB(*RB,*rB);
-	epoint_get(*RB, x2, y2);
+	epoint_get(RB, x2, y2);
 	//将x2 y2放数组中，方便后续进行杂凑，同时x2 y2就可以用作变量存放其他值。
-	big_to_bytes(32, x2, x2y2_char,1);
-	big_to_bytes(32, y2, x2y2_char+32,1);
-	
+	big_to_bytes(32, x2, x2y2_char, 1);
+	big_to_bytes(32, y2, x2y2_char + 32, 1);
+
 	//B3:计算w,x2_=2^w + x2 & (2^w - 1)
 	w = logb2(para_n);
 	expb2(w, temp);//temp=2^w
@@ -314,11 +317,11 @@ int B1(epoint * RA,epoint** RB,epoint *pA,epoint *pB,big dB,big * rB, unsigned c
 	add(x2, x2_, x2_);   //x2_=2^w + x2 & (2^w - 1)
 
 	//B4：tB = (dB + x2_ * rB) mod n
-	multiply(x2_, rB, x2_); 
+	multiply(x2_, rB, x2_);
 	add(dB, x2_, x2_);     //现在的x2_=(dB + x2_ * rB)
 	divide(x2_, para_n, temp);   //x2_即就是tB
 	//divide(x2_, para_n, temp);	//x2_ = n mod q
-	
+
 	//B5:验证RA是否满足椭圆曲线，并计算x1_,单独将测试点是否在椭圆曲线上写成一个函数，使代码更加简洁
 	//先测试
 	if (pointIsOn(RA) == 0)
@@ -329,7 +332,7 @@ int B1(epoint * RA,epoint** RB,epoint *pA,epoint *pB,big dB,big * rB, unsigned c
 	//后计算x1_
 	epoint_get(RA, x1, y1);
 	big_to_bytes(32, x1, x1y1_char, 1);
-	big_to_bytes(32, y1, x1y1_char+32,1);
+	big_to_bytes(32, y1, x1y1_char + 32, 1);
 	expb2(w, x1_);		//x1_ = 2^w
 	divide(x1, x1_, temp);	//x1 = x1 mod x1_ = x1 & (2^w - 1)
 	add(x1_, x1, x1_);
@@ -353,6 +356,7 @@ int B1(epoint * RA,epoint** RB,epoint *pA,epoint *pB,big dB,big * rB, unsigned c
 	}
 	epoint_get(V, Vx, Vy);
 
+	//B7:计算Kb
 	big_to_bytes(32, Vx, Z, 1);
 	big_to_bytes(32, Vy, Z + 32, 1);//Z=Vx||Vy
 	memcpy(Z + 64, ZA, 32);//Z=Vx||Vy||ZA
@@ -361,7 +365,7 @@ int B1(epoint * RA,epoint** RB,epoint *pA,epoint *pB,big dB,big * rB, unsigned c
 
 	//进行杂凑
 	shs256_init(&sha_256);
-	for (i = 0; i<32; i++)
+	for (i = 0; i < 32; i++)
 	{
 		shs256_process(&sha_256, Z[i]);  //hash(Vx)
 	}
@@ -386,12 +390,14 @@ int B1(epoint * RA,epoint** RB,epoint *pA,epoint *pB,big dB,big * rB, unsigned c
 	shs256_hash(&sha_256, hash);
 
 	shs256_init(&sha_256);
-	shs256_process(&sha_256, fr);  //hash(0x02)
+	shs256_process(&sha_256, fr[0]);  //hash(0x02)
+
 	for (i = 0; i < 32; i++)
 	{
-		shs256_process(&sha_256, Z[i+32]);//hash(0x02||Vy)
+		shs256_process(&sha_256, Z[i + 32]);//hash(0x02||Vy)
 	}
-	
+
+	//B8-B9:hash存放的即 SB选项   SB和RB发送给用户A
 	for (i = 0; i < 32; i++)
 	{
 		shs256_process(&sha_256, hash[i]);//hash(0x02||Vy||hash(Vx||ZA||ZB||x1||y1||x2||y2))
@@ -400,4 +406,81 @@ int B1(epoint * RA,epoint** RB,epoint *pA,epoint *pB,big dB,big * rB, unsigned c
 
 	return 1;//成功返回1,否则为失败
 
+}
+int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB)
+{
+	big x1, y1,x1_,x2,y2,x2_,temp,tA,Ux,Uy;
+	x1 = mirvar(0);
+	y1 = mirvar(0);
+	x1_ = mirvar(0);
+	x2 = mirvar(0);
+	x2_ = mirvar(0);
+	y2 = mirvar(0);
+	temp = mirvar(0);
+	tA = mirvar(0);
+	Ux = mirvar(0);
+	Uy = mirvar(0);
+	unsigned char x1y1_char[64] = { 0 };
+	unsigned char x2y2_char[64] = { 0 };
+	int w = 0, i = 0;
+	epoint* U;
+	U = epoint_init();
+	//计算w
+	w = logb2(para_n);
+	expb2(w, temp);  //temp=2^w
+	if (mr_compare(para_n, temp) == 1)
+		w++;
+	if ((w % 2) == 0)
+		w = w / 2 - 1;
+	else
+		w = (w + 1) / 2 - 1;
+	//A4: x1_ = 2^w + x2 & (2^w - 1)
+	epoint_get(RA, x1, y1);
+	big_to_bytes(32, x1, x1y1_char, 1);
+	big_to_bytes(32, y1, x1y1_char+32, 1);
+
+	expb2(w, x1_);		//x1_ = 2^w
+	divide(x1, x1_, temp);	//x1 = x1 mod x1_ = x1 & (2^w - 1)
+	add(x1_, x1, x1_);
+	//divide(x1_, para_n, temp);
+
+
+	//A5:计算tA
+	multiply(x1_, rA, tA);
+	divide(tA, para_n, temp);
+	add(tA, dA, tA);
+	divide(tA, para_n, temp);
+
+	//A6:验证RB，计算x2_
+	if (point_at_infinity(RB) == 1)
+	{
+		printf("RB is at infinity!\n");
+		return 0;
+	}
+	epoint_get(RB, x2, y2);
+	big_to_bytes(32, x2, x2y2_char, 1);
+	big_to_bytes(32, y2, x2y2_char + 32, 1);
+	expb2(w, x2_);		//x2_ = 2^w
+	divide(x2, x2_, temp);	//x2 = x2 mod x2_ = x2 & (2^w - 1)
+	add(x2_, x2, x2_);
+	//divide(x2_, para_n, temp);
+
+	//A7:计算点U，并判断是否为无穷远点
+	ecurve_mult(x2_, RB, U);	//U = [x2_]RB
+	epoint_get(U, Ux, Uy);
+
+	ecurve_add(pB, U);	//U = pB +[x2_]RB
+	epoint_get(U, Ux, Uy);
+
+	multiply(para_h, tA, tA); 	//tA = tA * h 
+	//divide(tA, para_n, temp);
+
+	ecurve_mult(tA, U, U); //U = [h * tA](PB + [x2_]RB)
+	
+	if (point_at_infinity(U) == 1)
+	{
+		return 0;
+	}
+
+	return 1;//成功返回1
 }

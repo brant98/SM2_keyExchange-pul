@@ -8,4 +8,4 @@ int pointIsOn(epoint* point);
 void SM2_ZA(epoint* A, unsigned char IDA[], unsigned char ZA[]);//生成用户标识
 int cal_RA_RB(epoint** RA, big* rA);
 
-int B1(epoint* RA, epoint** RB, epoint* pA, epoint* pB, big dB, big* rB, unsigned char IDA[], unsigned char IDB[], unsigned char K[], unsigned char hash[]);
+int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned char IDA[], unsigned char IDB[], unsigned char K[], unsigned char hash[]);
