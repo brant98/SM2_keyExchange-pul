@@ -263,15 +263,15 @@ int pointIsOn(epoint* point)
 }
 
 //响应方B,首先进行的系列操作
-//K里面放的KB hash里面放的Sb(选项)
-int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned char ZA[], unsigned char ZB[], unsigned char K[], unsigned char hash[])
+//K里面放的KB     hash里面放的Sb(选项)
+int B1(epoint**V,epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned char ZA[], unsigned char ZB[], unsigned char K[], unsigned char hash[])
 {
 	big x1, y1, x2, y2, x1_, y1_, x2_, y2_, Vx, Vy, temp;
-	epoint* V;
+	
 	int lenK = sizeof(K);
 	int i = 0;
 	int w = 0;
-	V = epoint_init();
+	*V = epoint_init();
 	x1 = mirvar(0);
 	y1 = mirvar(0);
 	x2 = mirvar(0);
@@ -281,14 +281,13 @@ int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned
 	Vx = mirvar(0);
 	Vy = mirvar(0);
 	temp = mirvar(0);
-
 	x2_ = mirvar(0);
 	y2_ = mirvar(0);
 	unsigned char x1y1_char[64] = { 0 };
 	unsigned char x2y2_char[64] = { 0 };
-	unsigned char Z[128] = { 0 };//128=VX, VY, ZA, ZB=32*4
-	
-	
+	unsigned char Z[128] = { 0 };  //128=VX, VY, ZA, ZB=32*4
+
+
 	unsigned char fr[1] = { 0x02 };
 	sha256 sha_256;
 
@@ -307,17 +306,18 @@ int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned
 		w = w / 2 - 1;
 	else
 		w = (w + 1) / 2 - 1;
+
 	//大数不方便直接进行与操作，采用模运算的方式实现与操作
 	expb2(w, x2_);   //x2_=2^w
 	divide(x2, x2_, temp);//x2里面放的是余数，即就是模2^w后的值
 	// 此处考虑用mod的方式实现一下
 	add(x2, x2_, x2_);   //x2_=2^w + x2 & (2^w - 1)
+	//divide(x2_, para_n, temp);	//x2_ = n mod q  这句代码查看是否需要
 
 	//B4：tB = (dB + x2_ * rB) mod n
 	multiply(x2_, rB, x2_);
 	add(dB, x2_, x2_);     //现在的x2_=(dB + x2_ * rB)
 	divide(x2_, para_n, temp);   //x2_即就是tB
-	//divide(x2_, para_n, temp);	//x2_ = n mod q
 
 	//B5:验证RA是否满足椭圆曲线，并计算x1_,单独将测试点是否在椭圆曲线上写成一个函数，使代码更加简洁
 	//先测试
@@ -333,32 +333,31 @@ int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned
 	expb2(w, x1_);		//x1_ = 2^w
 	divide(x1, x1_, temp);	//x1 = x1 mod x1_ = x1 & (2^w - 1)
 	add(x1_, x1, x1_);
-	//divide(x1_, para_n, temp);	//x1_ = n mod q
-
+	//divide(x1_, para_n, temp);	//x1_ = n mod q   这里需要注意一下  有和无的区别
 
 	//B6:计算点V，V是否为无穷远点？V = [h * tB](PA + [x1_]RA)
-	ecurve_mult(x1_, RA, V);//V=[x1_]RA
-	epoint_get(V, Vx, Vy);
+	ecurve_mult(x1_, RA,*V);//V=[x1_]RA
+	epoint_get(*V, Vx, Vy);
 
-	ecurve_add(pA, V);//V=PA+[x1_]RA
-	epoint_get(V, Vx, Vy);
+	ecurve_add(pA, *V);//V=PA+[x1_]RA
+	epoint_get(*V, Vx, Vy);
 
 	multiply(para_h, x2_, temp);//temp=tB * h
-	ecurve_mult(temp, V, V);
+	ecurve_mult(temp, *V, *V);
 
-	if (point_at_infinity(V) == 1)
+	if (point_at_infinity(*V) == 1)
 	{
 		printf("V is at infinity!\n");
 		return 0;
 	}
-	epoint_get(V, Vx, Vy);
+	epoint_get(*V, Vx, Vy);
 
-	//B7:计算Kb
+	//B7:计算KB
 	big_to_bytes(32, Vx, Z, 1);
 	big_to_bytes(32, Vy, Z + 32, 1);//Z=Vx||Vy
 	memcpy(Z + 64, ZA, 32);//Z=Vx||Vy||ZA
 	memcpy(Z + 96, ZB, 32);//Z=Vx||Vy||ZA||ZB
-	KDF(Z, 128, K, lenK);
+	KDF(Z, 128, K, lenK); //K中放的KB
 
 	//进行杂凑
 	shs256_init(&sha_256);
@@ -366,8 +365,6 @@ int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned
 	{
 		shs256_process(&sha_256, Z[i]);  //hash(Vx)
 	}
-	shs256_hash(&sha_256, hash);
-
 	for (i = 0; i < 32; i++)
 	{
 		shs256_process(&sha_256, ZA[i]);  //hash(Vx||ZA)
@@ -378,23 +375,23 @@ int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned
 	}
 	for (i = 0; i < 64; i++)
 	{
-		shs256_process(&sha_256, x1y1_char[i]);  //hash(Vx||ZA||ZB||x1||x2)
+		shs256_process(&sha_256, x1y1_char[i]);  //hash(Vx||ZA||ZB||x1||y1)
 	}
 	for (i = 0; i < 64; i++)
 	{
-		shs256_process(&sha_256, x2y2_char);  //hash(Vx||ZA||ZB||x1||y1||x2||y2)
+		shs256_process(&sha_256, x2y2_char[i]);  //hash(Vx||ZA||ZB||x1||y1||x2||y2)
 	}
 	shs256_hash(&sha_256, hash);
 
+
 	shs256_init(&sha_256);
 	shs256_process(&sha_256, fr[0]);  //hash(0x02)
-
 	for (i = 0; i < 32; i++)
 	{
 		shs256_process(&sha_256, Z[i + 32]);//hash(0x02||Vy)
 	}
 
-	//B8-B9:hash存放的即 SB选项   SB和RB发送给用户A
+	//B8-B9: hash存放的即 SB选项   SB和RB发送给用户A
 	for (i = 0; i < 32; i++)
 	{
 		shs256_process(&sha_256, hash[i]);//hash(0x02||Vy||hash(Vx||ZA||ZB||x1||y1||x2||y2))
@@ -404,9 +401,9 @@ int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned
 	return 1;//成功返回1,否则为失败
 
 }
-int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB,unsigned char ZA[],unsigned char ZB[],unsigned char KA[],unsigned char SB[])
+int A2(epoint* RA, big rA, big dA, epoint* RB, epoint* pB, unsigned char ZA[], unsigned char ZB[], unsigned char KA[], unsigned char SB[], unsigned char SA[])
 {
-	big x1, y1,x1_,x2,y2,x2_,temp,tA,Ux,Uy;
+	big x1, y1, x1_, x2, y2, x2_, temp, tA, Ux, Uy;
 	x1 = mirvar(0);
 	y1 = mirvar(0);
 	x1_ = mirvar(0);
@@ -417,7 +414,7 @@ int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB,unsigned char ZA[],unsigned 
 	tA = mirvar(0);
 	Ux = mirvar(0);
 	Uy = mirvar(0);
-	
+
 	sha256  sha_256;
 	unsigned char x1y1_char[64] = { 0 };
 	unsigned char x2y2_char[64] = { 0 };
@@ -440,15 +437,15 @@ int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB,unsigned char ZA[],unsigned 
 	//A4: x1_ = 2^w + x2 & (2^w - 1)
 	epoint_get(RA, x1, y1);
 	big_to_bytes(32, x1, x1y1_char, 1);
-	big_to_bytes(32, y1, x1y1_char+32, 1);
+	big_to_bytes(32, y1, x1y1_char + 32, 1);
 
 	expb2(w, x1_);		//x1_ = 2^w
 	divide(x1, x1_, temp);	//x1 = x1 mod x1_ = x1 & (2^w - 1)
 	add(x1_, x1, x1_);
-	//divide(x1_, para_n, temp);
+	//divide(x1_, para_n, temp);   //注意这里需要不要
 
 
-	//A5:计算tA
+	//A5:计算tA=(dA + x1_ * rA) mod n
 	multiply(x1_, rA, tA);
 	divide(tA, para_n, temp);
 	add(tA, dA, tA);
@@ -460,13 +457,15 @@ int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB,unsigned char ZA[],unsigned 
 		printf("RB is at infinity!\n");
 		return 0;
 	}
+
 	epoint_get(RB, x2, y2);
 	big_to_bytes(32, x2, x2y2_char, 1);
 	big_to_bytes(32, y2, x2y2_char + 32, 1);
+
 	expb2(w, x2_);		//x2_ = 2^w
 	divide(x2, x2_, temp);	//x2 = x2 mod x2_ = x2 & (2^w - 1)
 	add(x2_, x2, x2_);
-	//divide(x2_, para_n, temp);
+	divide(x2_, para_n, temp);  //注意这里是否需要
 
 	//A7:计算点U，并判断是否为无穷远点
 	ecurve_mult(x2_, RB, U);	//U = [x2_]RB
@@ -476,10 +475,10 @@ int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB,unsigned char ZA[],unsigned 
 	epoint_get(U, Ux, Uy);
 
 	multiply(para_h, tA, tA); 	//tA = tA * h 
-	//divide(tA, para_n, temp);
+	divide(tA, para_n, temp);   //注意这里是否需要
 
 	ecurve_mult(tA, U, U); //U = [h * tA](PB + [x2_]RB)
-	
+
 	if (point_at_infinity(U) == 1)
 	{
 		printf("U is at infinity!\n");
@@ -490,13 +489,13 @@ int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB,unsigned char ZA[],unsigned 
 	big_to_bytes(32, Uy, Z + 32, 1);
 
 	//A8: KDF  计算KA
-	memcpy(32, ZA, Z + 64, 1);
-	memcpy(32, ZB, Z + 96, 1);
+	memcpy(Z + 64, ZA, 32, 1);
+	memcpy(Z + 96, ZB, 32, 1);
 	KDF(Z, 128, KA, 32);
 
 	//A9:计算S1=Hash(0x02 || Uy || Hash(Ux || ZA || ZB || x1 || y1 || x2 || y2))
 	shs256_init(&sha_256);
-	for (i = 0; i <32;i++ )
+	for (i = 0; i < 32; i++)
 	{
 		shs256_process(&sha_256, Z[i]);
 	}
@@ -523,20 +522,109 @@ int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB,unsigned char ZA[],unsigned 
 	shs256_process(&sha_256, fr[0]);  //Hash(0x02)
 	for (i = 0; i < 32; i++)
 	{
-		shs256_process(&sha_256, Z[i+32]);//Hash(0x02 || Uy)
+		shs256_process(&sha_256, Z[i + 32]);//Hash(0x02 || Uy)
 	}
 	for (i = 0; i < 32; i++)
 	{
 		shs256_process(&sha_256, hash[i]);//Hash(0x02 || Uy|| Hash(xU || ZA || ZB || x1 || y1 || x2 || y2)))
 	}
 	shs256_hash(&sha_256, S1);
-	
+
 	if (memcmp(S1, SB, 32) != 0)
 	{
-		printf("S1 ！= SB\n");
+		printf("B->A,Failed!S1 ！= SB\n");
 		return 0;
 	}
-	printf("success!=\n");
 
+	//A10: 计算SA= Hash(0x03 || yU || Hash(xU || ZA || ZB || x1 || y1 || x2 || y2))
+	printf("B->A,Success!\n");
+	shs256_init(&sha_256);
+	
+	shs256_process(&sha_256, fr[1]); //hash(0x03)
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, Z[i + 32]);//Hash(0x03 || Uy)
+	}
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, hash[i]);//Hash(0x03|| Uy|| Hash(xU || ZA || ZB || x1 || y1 || x2 || y2)))
+	}
+	shs256_hash(&sha_256, SA);
+	return 1;//成功返回1
+}
+
+
+int B2(epoint* V,epoint*RA,epoint*RB, unsigned char ZA[], unsigned char ZB[], unsigned char SA[])
+{
+	// B10:计算S2=Hash(0x03 || Vy || Hash(Vx || ZA || ZB || x1 || y1 || x2 || y2))
+	unsigned char fr[1] = { 0x03 };
+	unsigned char x1y1_char[64] = { 0 };
+	unsigned char x2y2_char[64] = { 0 };
+	unsigned char Vxy_char[64] = { 0 };
+	unsigned char hash[32] = { 0 };
+	unsigned char S2[64] = { 0 };
+	
+	int i = 0;
+	big x1, y1, x2, y2,Vx,Vy;
+	x1 = mirvar(0);
+	y1 = mirvar(0);
+	x2 = mirvar(0);
+	y2 = mirvar(0);
+	Vx = mirvar(0);
+	Vy = mirvar(0);
+
+	epoint_get(RA, x1, y1);
+	epoint_get(RB, x2, y2);
+	epoint_get(V, Vx, Vy);
+
+	big_to_bytes(32, Vx, Vxy_char, 1);
+	big_to_bytes(32, Vy, Vxy_char+32, 1);
+	big_to_bytes(32, x1, x1y1_char, 1);
+	big_to_bytes(32, y1, x1y1_char + 32, 1);
+	big_to_bytes(32, x2, x2y2_char, 1);
+	big_to_bytes(32, y2, x2y2_char +32, 1);
+
+	sha256  sha_256;
+	shs256_init(&sha_256);
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, Vxy_char[i]);  //Hash(Vx)
+	}
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, ZA[i]);  //Hash(Vx||ZA)
+	}
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, ZA[i]);  //Hash(Vx||ZA||ZB)
+	}
+	for (i = 0; i < 64; i++)
+	{
+		shs256_process(&sha_256, x1y1_char[i]);  //Hash(Vx||ZA||x1||y1)
+	}
+	for (i = 0; i < 64; i++)
+	{
+		shs256_process(&sha_256, x2y2_char[i]);  //Hash(Vx||ZA||x1||y1||x2||y2)
+	}
+	shs256_hash(&sha_256, hash);
+
+	shs256_init(&sha_256);
+	shs256_process(&sha_256, fr[0]);  //Hash(0x03)
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, Vxy_char[i+32]);  //Hash(0x03||Vy)
+	}
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, hash[i]);  //Hash(0x03||VyHash(Vx || ZA || ZB || x1 || y1 || x2 || y2))
+	}
+	shs256_hash(&sha_256, S2);
+
+	if (memcmp(S2, SA, 32) != 0)
+	{
+		printf("A->B,Failed!\n");
+		return 0;
+	}
+	printf("A->B,Success!\n");
 	return 1;//成功返回1
 }
