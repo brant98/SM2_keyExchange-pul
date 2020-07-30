@@ -264,7 +264,7 @@ int pointIsOn(epoint* point)
 
 //响应方B,首先进行的系列操作
 //K里面放的KB hash里面放的Sb(选项)
-int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned char IDA[], unsigned char IDB[], unsigned char K[], unsigned char hash[])
+int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned char ZA[], unsigned char ZB[], unsigned char K[], unsigned char hash[])
 {
 	big x1, y1, x2, y2, x1_, y1_, x2_, y2_, Vx, Vy, temp;
 	epoint* V;
@@ -287,13 +287,10 @@ int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned
 	unsigned char x1y1_char[64] = { 0 };
 	unsigned char x2y2_char[64] = { 0 };
 	unsigned char Z[128] = { 0 };//128=VX, VY, ZA, ZB=32*4
-	unsigned char ZA[32];
-	unsigned char ZB[32];
+	
+	
 	unsigned char fr[1] = { 0x02 };
 	sha256 sha_256;
-
-	SM2_ZA(pA, IDA, ZA);//计算用户A、B的标识
-	SM2_ZA(pB, IDB, ZB);
 
 	//B2: 计算RB
 	epoint_get(RB, x2, y2);
@@ -407,7 +404,7 @@ int B1(epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned
 	return 1;//成功返回1,否则为失败
 
 }
-int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB)
+int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB,unsigned char ZA[],unsigned char ZB[],unsigned char KA[],unsigned char SB[])
 {
 	big x1, y1,x1_,x2,y2,x2_,temp,tA,Ux,Uy;
 	x1 = mirvar(0);
@@ -420,11 +417,17 @@ int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB)
 	tA = mirvar(0);
 	Ux = mirvar(0);
 	Uy = mirvar(0);
+	
+	sha256  sha_256;
 	unsigned char x1y1_char[64] = { 0 };
 	unsigned char x2y2_char[64] = { 0 };
+	unsigned char Z[128] = { 0 };
+	unsigned char hash[32] = { 0 };
+	unsigned char S1[32] = { 0 };
 	int w = 0, i = 0;
 	epoint* U;
 	U = epoint_init();
+	unsigned char fr[2] = { 0x02,0x03 };
 	//计算w
 	w = logb2(para_n);
 	expb2(w, temp);  //temp=2^w
@@ -479,8 +482,61 @@ int A2(epoint* RA,big rA,big dA,epoint*RB,epoint*pB)
 	
 	if (point_at_infinity(U) == 1)
 	{
+		printf("U is at infinity!\n");
 		return 0;
 	}
+	epoint_get(U, Ux, Uy);
+	big_to_bytes(32, Ux, Z, 1);
+	big_to_bytes(32, Uy, Z + 32, 1);
+
+	//A8: KDF  计算KA
+	memcpy(32, ZA, Z + 64, 1);
+	memcpy(32, ZB, Z + 96, 1);
+	KDF(Z, 128, KA, 32);
+
+	//A9:计算S1=Hash(0x02 || Uy || Hash(Ux || ZA || ZB || x1 || y1 || x2 || y2))
+	shs256_init(&sha_256);
+	for (i = 0; i <32;i++ )
+	{
+		shs256_process(&sha_256, Z[i]);
+	}
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, ZA[i]);
+	}
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, ZB[i]);
+	}
+	for (i = 0; i < 64; i++)
+	{
+		shs256_process(&sha_256, x1y1_char[i]);
+	}
+	for (i = 0; i < 64; i++)
+	{
+		shs256_process(&sha_256, x2y2_char[i]);
+	}
+	shs256_hash(&sha_256, hash);
+
+
+	shs256_init(&sha_256);
+	shs256_process(&sha_256, fr[0]);  //Hash(0x02)
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, Z[i+32]);//Hash(0x02 || Uy)
+	}
+	for (i = 0; i < 32; i++)
+	{
+		shs256_process(&sha_256, hash[i]);//Hash(0x02 || Uy|| Hash(xU || ZA || ZB || x1 || y1 || x2 || y2)))
+	}
+	shs256_hash(&sha_256, S1);
+	
+	if (memcmp(S1, SB, 32) != 0)
+	{
+		printf("S1 ！= SB\n");
+		return 0;
+	}
+	printf("success!=\n");
 
 	return 1;//成功返回1
 }
