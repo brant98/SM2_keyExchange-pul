@@ -139,7 +139,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="keyExchange.h" />
     <ClInclude Include="miracl.h" />
     <ClInclude Include="mirdef.h" />
     <ClInclude Include="SM2.h" />
@@ -151,7 +150,6 @@
     <None Include="miracl.pdb" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="keyExchange.c" />
     <ClCompile Include="main.c" />
     <ClCompile Include="SM2.c" />
     <ClCompile Include="test_kEx.c" />

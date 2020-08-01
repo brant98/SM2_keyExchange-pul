@@ -264,7 +264,7 @@ int pointIsOn(epoint* point)
 
 //响应方B,首先进行的系列操作
 //K里面放的KB     hash里面放的Sb(选项)
-int B1(epoint**V,epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned char ZA[], unsigned char ZB[], unsigned char K[], unsigned char hash[])
+int B1(epoint**V,epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB, unsigned char ZA[], unsigned char ZB[], unsigned char K[], unsigned char SB[])
 {
 	big x1, y1, x2, y2, x1_, y1_, x2_, y2_, Vx, Vy, temp;
 	
@@ -381,7 +381,7 @@ int B1(epoint**V,epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB
 	{
 		shs256_process(&sha_256, x2y2_char[i]);  //hash(Vx||ZA||ZB||x1||y1||x2||y2)
 	}
-	shs256_hash(&sha_256, hash);
+	shs256_hash(&sha_256, SB);
 
 
 	shs256_init(&sha_256);
@@ -394,9 +394,9 @@ int B1(epoint**V,epoint* RA, epoint* RB, epoint* pA, epoint* pB, big dB, big  rB
 	//B8-B9: hash存放的即 SB选项   SB和RB发送给用户A
 	for (i = 0; i < 32; i++)
 	{
-		shs256_process(&sha_256, hash[i]);//hash(0x02||Vy||hash(Vx||ZA||ZB||x1||y1||x2||y2))
+		shs256_process(&sha_256, SB[i]);//hash(0x02||Vy||hash(Vx||ZA||ZB||x1||y1||x2||y2))
 	}
-	shs256_hash(&sha_256, hash);
+	shs256_hash(&sha_256,SB);
 
 	return 1;//成功返回1,否则为失败
 
